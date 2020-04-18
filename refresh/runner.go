@@ -12,7 +12,11 @@ import (
 func (m *Manager) runner() {
 	var cmd *exec.Cmd
 	for {
-		<-m.Restart
+		select {
+		case <-m.Restart:
+		case <-m.context.Done():
+			return
+		}
 		if cmd != nil {
 			// kill the previous command
 			pid := cmd.Process.Pid
@@ -52,9 +56,27 @@ func (m *Manager) runAndListen(cmd *exec.Cmd) error {
 		cmd.Stdout = os.Stdout
 	}
 
-	var stderr bytes.Buffer
+	var stderrBuf bytes.Buffer
 
-	cmd.Stderr = io.MultiWriter(&stderr, cmd.Stderr)
+	errR, errW := io.Pipe()
+	go func() {
+		for {
+			buf := make([]byte, 32*1024)
+			n, err := errR.Read(buf)
+			if err != nil {
+				if err != io.EOF {
+					m.Logger.Error("Error reading stderr: %s.", err)
+				}
+				return
+			}
+			buf = buf[:n]
+			_, _ = stderrBuf.Write(buf) // Best effort.
+			m.Logger.Error("%s\n", buf)
+		}
+	}()
+
+	defer func() { _ = errW.Close() }() // Best effort.
+	cmd.Stderr = io.MultiWriter(errW, cmd.Stderr)
 
 	// Set the environment variables from config
 	if len(m.CommandEnv) != 0 {
@@ -63,13 +85,13 @@ func (m *Manager) runAndListen(cmd *exec.Cmd) error {
 
 	err := cmd.Start()
 	if err != nil {
-		return fmt.Errorf("%s\n%s", err, stderr.String())
+		return fmt.Errorf("%s\n%s", err, stderrBuf.String())
 	}
 
-	m.Logger.Success("Running: %s (PID: %d)", strings.Join(cmd.Args, " "), cmd.Process.Pid)
+	m.Logger.Print("Running: %s (PID: %d)", strings.Join(cmd.Args, " "), cmd.Process.Pid)
 	err = cmd.Wait()
 	if err != nil {
-		return fmt.Errorf("%s\n%s", err, stderr.String())
+		return fmt.Errorf("%s\n%s", err, stderrBuf.String())
 	}
 	return nil
 }

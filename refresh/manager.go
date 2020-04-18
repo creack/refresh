@@ -11,12 +11,19 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/markbates/refresh/chat"
 )
+
+type logger interface {
+	Success(msg interface{}, args ...interface{})
+	Error(msg interface{}, args ...interface{})
+	Print(msg interface{}, args ...interface{})
+}
 
 type Manager struct {
 	*Configuration
 	ID         string
-	Logger     *Logger
+	Logger     logger
 	Restart    chan bool
 	cancelFunc context.CancelFunc
 	context    context.Context
@@ -29,10 +36,13 @@ func New(c *Configuration) *Manager {
 
 func NewWithContext(c *Configuration, ctx context.Context) *Manager {
 	ctx, cancelFunc := context.WithCancel(ctx)
+
+	web := chat.Start(ctx, cancelFunc, NewLogger(c))
+
 	m := &Manager{
 		Configuration: c,
 		ID:            ID(),
-		Logger:        NewLogger(c),
+		Logger:        web,
 		Restart:       make(chan bool),
 		cancelFunc:    cancelFunc,
 		context:       ctx,
@@ -44,6 +54,7 @@ func NewWithContext(c *Configuration, ctx context.Context) *Manager {
 func (r *Manager) Start() error {
 	w := NewWatcher(r)
 	w.Start()
+
 	go r.build(fsnotify.Event{Name: ":start:"})
 	if !r.Debug {
 		go func() {
@@ -56,7 +67,7 @@ func (r *Manager) Start() error {
 					w.Remove(event.Name)
 					w.Add(event.Name)
 				case <-r.context.Done():
-					break
+					return
 				}
 			}
 		}()
@@ -67,7 +78,7 @@ func (r *Manager) Start() error {
 			case err := <-w.Errors():
 				r.Logger.Error(err)
 			case <-r.context.Done():
-				break
+				return
 			}
 		}
 	}()
