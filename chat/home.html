@@ -16,48 +16,49 @@ window.onload = function () {
         }
     }
 
-    document.getElementById("form").onsubmit = function () {
+    window.onsubmit = function (value) {
         if (!conn) {
             return false;
         }
-        if (!msg.value) {
+        if (!value) {
             return false;
         }
-        conn.send(msg.value);
-        msg.value = "";
+        conn.send(value);
         return false;
     };
 
-    if (window["WebSocket"]) {
-        var startWs;
-        startWs = function () {
-            conn = new WebSocket("ws://" + document.location.host + "/ws");
-            conn.onopen = function (evt) {
-                var item = document.createElement("div");
-                item.innerHTML = "<b>Connection open.</b>";
-                appendLog(item);
-            };
-            conn.onclose = function (evt) {
-                var item = document.createElement("div");
-                item.innerHTML = "<b>Connection closed.</b>";
-                appendLog(item);
-                setTimeout(startWs, 5000);
-            };
-            conn.onmessage = function (evt) {
-                var messages = evt.data.split('\n');
-                for (var i = 0; i < messages.length; i++) {
-                    var item = document.createElement("div");
-                    item.innerText = messages[i];
-                    appendLog(item);
-                }
-            };
+    window.startWs = function () {
+        if (conn) {
+            conn.close();
+            conn = null;
+        }
+
+        if (!window["WebSocket"]) {
+            var item = document.createElement("div");
+            item.innerHTML = "<b>Your browser does not support WebSockets.</b>";
+            appendLog(item);
+            return;
+        }
+
+        conn = new WebSocket("ws://" + document.location.host + "/ws");
+        conn.onopen = function (evt) {
+            document.getElementById('state').setAttribute("value", "online")
         };
-        startWs();
-    } else {
-        var item = document.createElement("div");
-        item.innerHTML = "<b>Your browser does not support WebSockets.</b>";
-        appendLog(item);
-    }
+        conn.onclose = function (evt) {
+            document.getElementById('state').setAttribute("value", "offline")
+            setTimeout(window.startWs, 5000);
+        };
+        conn.onmessage = function (evt) {
+            var messages = evt.data.split('\n');
+            for (var i = 0; i < messages.length; i++) {
+                var item = document.createElement("div");
+                item.innerText = messages[i];
+                appendLog(item);
+            }
+        };
+    };
+
+    window.startWs();
 };
 
 </script>
@@ -87,7 +88,7 @@ body {
     overflow: auto;
 }
 
-#form {
+.form {
     padding: 0 0.5em 0 0.5em;
     margin: 0;
     position: absolute;
@@ -101,9 +102,10 @@ body {
 </head>
 <body>
 <div id="log"></div>
-<form id="form">
-    <input type="submit" value="Quit" />
-    <input type="text" id="msg" size="64" value="quit" hidden="true" />
-</form>
+<div class="form">
+    <input type="button" value="Quit Refresh" onclick="window.onsubmit('quit')" />
+    <input type="button" value="Quit App" onclick="window.onsubmit('quitapp')" />
+    <input type="button" id="state" value="offline" onclick="window.startWs()" />
+</div>
 </body>
 </html>
